@@ -50,43 +50,65 @@
     <br>
     <a href="index.html" class="back-link">← クラス選択に戻る</a>
   </div>
+  <!-- Supabase JS SDK の読み込み -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <script>
-    // URLのパラメータ（?classID=...）を取得する
-    const urlParams = new URLSearchParams(window.location.search);
-    const classID = urlParams.get('classID');
+<script>
+  // Supabaseの接続情報（SupabaseのProject Settings > API から取得）
+  const SUPABASE_URL = 'https://YOUR_PROJECT_ID.supabase.co';
+  const SUPABASE_ANON_KEY = 'YOUR_ANON_KEY';
+  const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // 表示の切り替え処理
-    if (classID) {
-      // classID がある場合 -> 順番待ち画面を表示
-      document.getElementById('view-status').style.display = 'block';
-      document.getElementById('class-title').textContent = `${classID} の呼び出し状況`;
+  const urlParams = new URLSearchParams(window.location.search);
+  const classID = urlParams.get('classID');
 
-      // TODO: 本来はここでclassIDに応じた現在の番号をサーバー等から取得します
-      // デモ用仮データ
-      document.getElementById('current-number').textContent = '5番';
-    } else {
-      // classID がない場合 -> クラス選択画面を表示
-      document.getElementById('view-select').style.display = 'block';
-    }
+  if (classID) {
+    document.getElementById('view-status').style.display = 'block';
+    document.getElementById('class-title').textContent = `${classID} の呼び出し状況`;
 
-    // サービスワーカーの登録
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js');
-    }
+    // 1. 初期データの取得
+    async function fetchCurrentNumber() {
+      const { data, error } = await supabase
+        .from('classes')
+        .select('current_number')
+        .eq('class_id', classID)
+        .single();
 
-    // 通知の許可リクエスト
-    function requestNotification() {
-      if ('Notification' in window) {
-        Notification.requestPermission().then(permission => {
-          if (permission === 'granted') {
-            alert(`${classID} の通知が許可されました！`);
-          } else {
-            alert('通知が拒否されました。設定から許可してください。');
-          }
-        });
+      if (data) {
+        updateNumberDisplay(data.current_number);
       }
     }
-  </script>
+
+    // 2. リアルタイム監視（画面を開いている間に先生が番号を変えたら自動反映）
+    supabase
+      .channel('public:classes')
+      .on('postgres_changes', { 
+        event: 'UPDATE', 
+        schema: 'public', 
+        table: 'classes', 
+        filter: `class_id=eq.${classID}` 
+      }, payload => {
+        const newNumber = payload.new.current_number;
+        updateNumberDisplay(newNumber);
+        
+        // ブラウザが開いている時のローカル通知（テスト用）
+        if (Notification.permission === 'granted') {
+          new Notification(`${classID}面談`, {
+            body: `現在の呼出番号が ${newNumber} 番になりました！`,
+            icon: 'icon.png'
+          });
+        }
+      })
+      .subscribe();
+
+    fetchCurrentNumber();
+  } else {
+    document.getElementById('view-select').style.display = 'block';
+  }
+
+  function updateNumberDisplay(num) {
+    document.getElementById('current-number').textContent = `${num}番`;
+  }
+</script>
 </body>
 </html>
