@@ -3,176 +3,195 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>面談順番待ち確認</title>
-  <link rel="manifest" href="manifest.json">
+  <title>面談呼出管理画面（先生用）</title>
   <style>
-    body { font-family: sans-serif; text-align: center; padding: 20px; background: #f4f6f8; margin: 0; }
-    .card { background: white; padding: 24px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-width: 400px; margin: 20px auto; }
-    .number { font-size: 3.5rem; font-weight: bold; color: #2b6cb0; margin: 15px 0; }
+    body { font-family: sans-serif; text-align: center; padding: 20px; background: #edf2f7; margin: 0; }
+    .card { background: white; padding: 24px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-width: 480px; margin: 20px auto; }
+    h2 { margin-top: 0; color: #2d3748; }
     
-    /* クラス選択ボタンのスタイル */
-    .class-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 15px; }
-    .class-btn { background: #4a5568; color: white; border: none; padding: 12px; border-radius: 8px; font-size: 1.1rem; text-decoration: none; display: block; }
-    .class-btn:hover { background: #2d3748; }
+    .section { border-bottom: 1px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 20px; }
+    label { display: block; font-weight: bold; margin-bottom: 8px; text-align: left; color: #4a5568; }
+    select, input[type="file"] { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #cbd5e0; box-sizing: border-box; margin-bottom: 12px; }
 
-    button.action-btn { background: #319795; color: white; border: none; padding: 12px 20px; border-radius: 6px; font-size: 1rem; cursor: pointer; margin-top: 15px; width: 100%; }
-    .back-link { display: inline-block; margin-top: 15px; color: #718096; text-decoration: none; font-size: 0.9rem; }
+    .number-display { font-size: 3.5rem; font-weight: bold; color: #2b6cb0; margin: 5px 0; }
+    .name-display { font-size: 1.8rem; font-weight: bold; color: #2d3748; background: #ebf8ff; padding: 12px; border-radius: 8px; margin: 10px 0 20px 0; border: 1px solid #bee3f8; }
+    .total-info { color: #718096; font-size: 0.9rem; margin-bottom: 15px; }
+
+    .btn-group { display: flex; gap: 10px; justify-content: center; }
+    button { border: none; padding: 16px 24px; border-radius: 8px; font-size: 1.2rem; font-weight: bold; cursor: pointer; flex: 1; transition: opacity 0.2s; }
+    button:hover { opacity: 0.9; }
+    .btn-next { background: #319795; color: white; }
+    .btn-prev { background: #e53e3e; color: white; }
+    .btn-reset { background: #718096; color: white; padding: 8px 16px; font-size: 0.9rem; flex: none; margin-top: 15px; }
+    
+    .status-msg { margin-top: 15px; font-size: 0.85rem; color: #38a169; font-weight: bold; }
   </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
-  <!-- 1. クラス選択画面（classIDがない場合に表示） -->
-  <div id="view-select" class="card" style="display: none;">
-    <h2>クラスを選択してください</h2>
-    <div class="class-grid">
-      <a href="?classID=1A" class="class-btn">1A</a>
-      <a href="?classID=1B" class="class-btn">1B</a>
-      <a href="?classID=1C" class="class-btn">1C</a>
-      <a href="?classID=1D" class="class-btn">1D</a>
-      <a href="?classID=2A" class="class-btn">2A</a>
-      <a href="?classID=2B" class="class-btn">2B</a>
-      <a href="?classID=2C" class="class-btn">2C</a>
-      <a href="?classID=2D" class="class-btn">2D</a>
-      <a href="?classID=3A" class="class-btn">3A</a>
-      <a href="?classID=3B" class="class-btn">3B</a>
-      <a href="?classID=3C" class="class-btn">3C</a>
-      <a href="?classID=3D" class="class-btn">3D</a>
+  <div class="card">
+    <h2>面談呼び出し管理</h2>
+
+    <!-- 1. クラス選択 & CSVインポート -->
+    <div class="section">
+      <label for="class-select">担当クラスを選択</label>
+      <select id="class-select" onchange="onClassChange()">
+        <option value="1A">1A</option><option value="1B">1B</option><option value="1C">1C</option><option value="1D">1D</option>
+        <option value="2A">2A</option><option value="2B">2B</option><option value="2C">2C</option><option value="2D">2D</option>
+        <option value="3A">3A</option><option value="3B">3B</option><option value="3C">3C</option><option value="3D">3D</option>
+      </select>
+
+      <label for="csv-file">生徒名簿（CSV）の読み込み・上書き</label>
+      <input type="file" id="csv-file" accept=".csv" onchange="handleCSVImport(event)">
+    </div>
+
+    <!-- 2. 呼出番号と名前の表示・操作 -->
+    <div>
+      <div style="color: #718096; font-size: 0.9rem;">現在の呼出番号</div>
+      <div class="number-display" id="admin-current-num">0</div>
+      <div class="name-display" id="admin-current-name">（準備中）</div>
+      <div class="total-info">（全名簿登録数: <span id="admin-total-num">0</span> 名）</div>
+
+      <div class="btn-group">
+        <button class="btn-prev" onclick="changeNumber(-1)">-1 戻す</button>
+        <button class="btn-next" onclick="changeNumber(1)">+1 次の人を呼ぶ</button>
+      </div>
+
+      <br>
+      <button class="btn-reset" onclick="resetNumber()">1番にリセット</button>
+      <div class="status-msg" id="status-msg"></div>
     </div>
   </div>
 
-  <!-- 2. 各クラスの順番確認画面（classIDがある場合に表示） -->
-  <div id="view-status" class="card" style="display: none;">
-    <h2 id="class-title">--</h2>
-    <p style="margin-bottom: 0; color: #718096;">現在の呼出番号</p>
-    <div class="number" id="current-number">--</div>
-    
-    <button class="action-btn" onclick="requestNotification()">このクラスの通知を受け取る</button>
-    <br>
-    <a href="index.html" class="back-link">← クラス選択に戻る</a>
-  </div>
-
-  <!-- Supabase JS SDK の読み込み -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
   <script>
-    // サービスワーカーの登録（PWA・通知に必須）
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js');
-    }
-
-    // Supabaseの接続情報
     const SUPABASE_URL = 'https://vyaaydlpndgptjpcasfz.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ5YWF5ZGxwbmRncHRqcGNhc2Z6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1OTQ2MjgsImV4cCI6MjEwMDE3MDYyOH0.Px5jQ4cghT9JDMKOJxBjcsQ7o4bJRnAxvXHljrV5aDk';
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const classID = urlParams.get('classID');
+    let currentClassID = '1A';
+    let currentNumber = 0;
+    let studentsList = [];
 
-    if (classID) {
-      document.getElementById('view-status').style.display = 'block';
-      document.getElementById('class-title').textContent = `${classID} の呼び出し状況`;
+    window.onload = () => { onClassChange(); };
 
-      // 1. 初期データの取得
-      async function fetchCurrentNumber() {
-        const { data, error } = await supabaseClient
-          .from('classes')
-          .select('current_number')
-          .eq('class_id', classID)
-          .single();
+    // クラス切り替え時：現在の番号と名簿一覧を取得
+    async function onClassChange() {
+      currentClassID = document.getElementById('class-select').value;
+      
+      // 1. 現在の呼出番号を取得
+      const { data: classData } = await supabaseClient
+        .from('classes')
+        .select('current_number')
+        .eq('class_id', currentClassID)
+        .single();
 
-        if (data) {
-          updateNumberDisplay(data.current_number);
+      currentNumber = classData ? classData.current_number || 0 : 0;
+
+      // 2. 名簿リストを取得
+      const { data: studentData } = await supabaseClient
+        .from('students')
+        .select('*')
+        .eq('class_id', currentClassID)
+        .order('order_num', { ascending: true });
+
+      studentsList = studentData || [];
+      updateAdminUI();
+    }
+
+    // CSV読み込み＆Supabaseへの名簿登録
+    async function handleCSVImport(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        const lines = e.target.result.split(/\r\n|\n/).filter(line => line.trim() !== '');
+        
+        // ヘッダー（名前、氏名など）が含まれている場合は除外する判定
+        let rows = lines.map(line => line.split(',')[0].replace(/"/g, '').trim());
+        if (rows[0] === '名前' || rows[0] === '氏名' || rows[0] === '生徒名') {
+          rows.shift();
         }
-      }
 
-      // 2. リアルタイム監視（画面を開いている間に先生が番号を変えたら自動反映）
-      supabaseClient
-        .channel('public:classes')
-        .on('postgres_changes', { 
-          event: 'UPDATE', 
-          schema: 'public', 
-          table: 'classes', 
-          filter: `class_id=eq.${classID}` 
-        }, payload => {
-          const newNumber = payload.new.current_number;
-          updateNumberDisplay(newNumber);
-          
-          // ブラウザが開いている時のローカル通知（テスト用）
-          if (Notification.permission === 'granted') {
-            new Notification(`${classID}面談`, {
-              body: `現在の呼出番号が ${newNumber} 番になりました！`,
-              icon: 'icon.png'
-            });
-          }
-        })
-        .subscribe();
+        if (rows.length === 0) {
+          alert('有効な名前データが見つかりませんでした。');
+          return;
+        }
 
-      fetchCurrentNumber();
-    } else {
-      document.getElementById('view-select').style.display = 'block';
-    }
+        showStatusMsg('名簿を登録中...');
 
-    function updateNumberDisplay(num) {
-      document.getElementById('current-number').textContent = `${num}番`;
-    }
+        // 既存のこのクラスの生徒データを削除して再登録
+        await supabaseClient.from('students').delete().eq('class_id', currentClassID);
 
-    // Base64文字列をUint8Arrayに変換するヘルパー関数
-    function urlBase64ToUint8Array(base64String) {
-      const padding = '='.repeat((4 - base64String.length % 4) % 4);
-      const base64 = (base64String + padding)
-        .replace(/\-/g, '+')
-        .replace(/_/g, '/');
+        const insertData = rows.map((name, index) => ({
+          class_id: currentClassID,
+          order_num: index + 1,
+          student_name: name
+        }));
 
-      const rawData = window.atob(base64);
-      const outputArray = new Uint8Array(rawData.length);
+        const { error } = await supabaseClient.from('students').insert(insertData);
 
-      for (let i = 0; i < rawData.length; ++i) {
-        outputArray[i] = rawData.charCodeAt(i);
-      }
-      return outputArray;
-    }
-
-    // 通知登録関数
-    async function requestNotification() {
-      if (!('serviceWorker' in navigator)) {
-        alert('お使いのブラウザは通知に対応していません。');
-        return;
-      }
-
-      try {
-        const permission = await Notification.requestPermission();
-        if (permission === 'granted') {
-          const reg = await navigator.serviceWorker.ready;
-
-          // TODO: ここに発行した VAPID Public Key を設定してください
-          const vapidPublicKey = 'BNwn33_C47GYb50iD4kTf0FU_AukxxxyBA-8978i9D85kZKNKIyJeEpq-HMCZrnWicGOS9jLPRfDqiZTHzw6ptE'; 
-          const convertedKey = urlBase64ToUint8Array(vapidPublicKey);
-
-          // ブラウザから Push 購読情報を取得
-          const subscription = await reg.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: convertedKey
-          });
-
-          // Supabaseに保存
-          const { error } = await supabaseClient.from('push_subscriptions').insert({
-            class_id: classID,
-            subscription: subscription.toJSON()
-          });
-
-          if (error) {
-            console.error('Supabase保存エラー:', error);
-            alert('通知登録に失敗しました。');
-          } else {
-            alert(`${classID} の通知を設定しました！`);
-          }
+        if (!error) {
+          showStatusMsg(`${rows.length} 名のデータインポートが完了しました！`);
+          await onClassChange();
         } else {
-          alert('通知の許可が得られませんでした。');
+          alert('名簿のインポートに失敗しました。');
+          console.error(error);
         }
-      } catch (err) {
-        console.error('通知設定エラー:', err);
-        alert('通知設定中にエラーが発生しました。');
+      };
+      reader.readAsText(file);
+    }
+
+    // 番号変更処理
+    async function changeNumber(delta) {
+      const nextNum = Math.max(0, currentNumber + delta);
+      
+      const { error } = await supabaseClient
+        .from('classes')
+        .upsert({ 
+          class_id: currentClassID, 
+          current_number: nextNum,
+          updated_at: new Date().toISOString()
+        });
+
+      if (!error) {
+        currentNumber = nextNum;
+        updateAdminUI();
+        showStatusMsg(`${currentClassID}: ${currentNumber}番に更新`);
       }
+    }
+
+    async function resetNumber() {
+      if (confirm('呼び出し番号を 1 に戻しますか？')) {
+        currentNumber = 0;
+        await changeNumber(1);
+      }
+    }
+
+    // UI更新
+    function updateAdminUI() {
+      document.getElementById('admin-current-num').textContent = currentNumber;
+      document.getElementById('admin-total-num').textContent = studentsList.length;
+
+      // 現在の順番の生徒名を探す
+      const currentStudent = studentsList.find(s => s.order_num === currentNumber);
+      const nameEl = document.getElementById('admin-current-name');
+      
+      if (currentNumber === 0) {
+        nameEl.textContent = '（呼び出し前）';
+      } else if (currentStudent) {
+        nameEl.textContent = `${currentStudent.student_name} 様`;
+      } else {
+        nameEl.textContent = '（名簿外の番号）';
+      }
+    }
+
+    function showStatusMsg(msg) {
+      const el = document.getElementById('status-msg');
+      el.textContent = msg;
+      setTimeout(() => { el.textContent = ''; }, 3000);
     }
   </script>
 </body>
