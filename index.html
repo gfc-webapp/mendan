@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>面談順番待ち確認</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    body { font-family: sans-serif; text-align: center; padding: 20px; background: #f4f6f8; margin: 0; }
+    .card { background: white; padding: 24px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-width: 400px; margin: 20px auto; }
+    .number { font-size: 3.5rem; font-weight: bold; color: #2b6cb0; margin: 15px 0; }
+    
+    /* クラス選択ボタンのスタイル */
+    .class-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 15px; }
+    .class-btn { background: #4a5568; color: white; border: none; padding: 12px; border-radius: 8px; font-size: 1.1rem; text-decoration: none; display: block; }
+    .class-btn:hover { background: #2d3748; }
+
+    button.action-btn { background: #319795; color: white; border: none; padding: 12px 20px; border-radius: 6px; font-size: 1rem; cursor: pointer; margin-top: 15px; width: 100%; }
+    .back-link { display: inline-block; margin-top: 15px; color: #718096; text-decoration: none; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+
+  <!-- 1. クラス選択画面（classIDがない場合に表示） -->
+  <div id="view-select" class="card" style="display: none;">
+    <h2>クラスを選択してください</h2>
+    <div class="class-grid">
+      <a href="?classID=1A" class="class-btn">1年A組</a>
+      <a href="?classID=1B" class="class-btn">1年B組</a>
+      <a href="?classID=2A" class="class-btn">2年A組</a>
+      <a href="?classID=2B" class="class-btn">2年B組</a>
+    </div>
+  </div>
+
+  <!-- 2. 各クラスの順番確認画面（classIDがある場合に表示） -->
+  <div id="view-status" class="card" style="display: none;">
+    <h2 id="class-title">--</h2>
+    <p style="margin-bottom: 0; color: #718096;">現在の呼出番号</p>
+    <div class="number" id="current-number">--</div>
+    
+    <button class="action-btn" onclick="requestNotification()">このクラスの通知を受け取る</button>
+    <br>
+    <a href="index.html" class="back-link">← クラス選択に戻る</a>
+  </div>
+
+  <script>
+    // URLのパラメータ（?classID=...）を取得する
+    const urlParams = new URLSearchParams(window.location.search);
+    const classID = urlParams.get('classID');
+
+    // 表示の切り替え処理
+    if (classID) {
+      // classID がある場合 -> 順番待ち画面を表示
+      document.getElementById('view-status').style.display = 'block';
+      document.getElementById('class-title').textContent = `${classID} の呼び出し状況`;
+
+      // TODO: 本来はここでclassIDに応じた現在の番号をサーバー等から取得します
+      // デモ用仮データ
+      document.getElementById('current-number').textContent = '5番';
+    } else {
+      // classID がない場合 -> クラス選択画面を表示
+      document.getElementById('view-select').style.display = 'block';
+    }
+
+    // サービスワーカーの登録
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js');
+    }
+
+    // 通知の許可リクエスト
+    function requestNotification() {
+      if ('Notification' in window) {
+        Notification.requestPermission().then(permission => {
+          if (permission === 'granted') {
+            alert(`${classID} の通知が許可されました！`);
+          } else {
+            alert('通知が拒否されました。設定から許可してください。');
+          }
+        });
+      }
+    }
+  </script>
+</body>
+</html>
