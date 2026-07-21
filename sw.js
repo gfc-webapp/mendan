@@ -4,7 +4,6 @@ const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './manifest.json',
-  './icon.png'
 ];
 
 // 1. インストール処理（必要なファイルをキャッシュ保存）
