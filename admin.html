@@ -3,167 +3,184 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>面談呼出管理画面（先生用）</title>
+  <link rel="manifest" href="manifest.json">
+  <title>面談順番確認サイト</title>
   <style>
-    body { font-family: sans-serif; text-align: center; padding: 20px; background: #edf2f7; margin: 0; }
-    .card { background: white; padding: 24px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-width: 480px; margin: 20px auto; }
-    h2 { margin-top: 0; color: #2d3748; }
+    body { font-family: sans-serif; text-align: center; padding: 20px; background: #f0f4f8; margin: 0; }
+    .card { background: white; padding: 24px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-width: 400px; margin: 20px auto; }
+    h1 { font-size: 1.5rem; color: #2d3748; margin-top: 0; }
     
-    /* 入力エリアのスタイル */
-    .section { border-bottom: 1px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 20px; }
-    label { display: block; font-weight: bold; margin-bottom: 8px; text-align: left; color: #4a5568; }
-    select, input[type="file"] { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #cbd5e0; box-sizing: border-box; margin-bottom: 12px; }
+    label { display: block; font-weight: bold; margin: 12px 0 6px 0; text-align: left; color: #4a5568; }
+    select { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e0; font-size: 1rem; box-sizing: border-box; }
 
-    /* カウンター・番号表示 */
-    .number-display { font-size: 4rem; font-weight: bold; color: #2b6cb0; margin: 10px 0; }
-    .total-info { color: #718096; font-size: 1rem; margin-bottom: 20px; }
-
-    /* 操作ボタン */
-    .btn-group { display: flex; gap: 10px; justify-content: center; }
-    button { border: none; padding: 16px 24px; border-radius: 8px; font-size: 1.2rem; font-weight: bold; cursor: pointer; flex: 1; transition: opacity 0.2s; }
-    button:hover { opacity: 0.9; }
-    .btn-next { background: #319795; color: white; }
-    .btn-prev { background: #e53e3e; color: white; }
-    .btn-reset { background: #718096; color: white; padding: 8px 16px; font-size: 0.9rem; flex: none; margin-top: 15px; }
+    .status-box { background: #ebf8ff; border: 1px solid #bee3f8; border-radius: 8px; padding: 15px; margin: 20px 0; }
+    .num-large { font-size: 3rem; font-weight: bold; color: #2b6cb0; margin: 5px 0; }
+    .wait-count { font-size: 1.3rem; font-weight: bold; color: #dd6b20; }
     
-    /* ログ表示 */
-    .status-msg { margin-top: 15px; font-size: 0.85rem; color: #38a169; font-weight: bold; }
+    .btn-notify { background: #319795; color: white; border: none; padding: 14px 20px; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; width: 100%; margin-top: 10px; }
+    .btn-notify:disabled { background: #cbd5e0; cursor: not-allowed; }
   </style>
 
-  <!-- Supabase SDK -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
   <div class="card">
-    <h2>面談呼び出し管理</h2>
+    <h1>面談順番リアルタイム確認</h1>
 
-    <!-- 1. クラス選択 & CSVインポート -->
-    <div class="section">
-      <label for="class-select">担当クラスを選択</label>
-      <select id="class-select" onchange="onClassChange()">
-        <option value="1A">1A</option><option value="1B">1B</option><option value="1C">1C</option><option value="1D">1D</option>
-        <option value="2A">2A</option><option value="2B">2B</option><option value="2C">2C</option><option value="2D">2D</option>
-        <option value="3A">3A</option><option value="3B">3B</option><option value="3C">3C</option><option value="3D">3D</option>
-      </select>
+    <!-- 1. クラス選択 -->
+    <label for="class-select">お子様のクラス</label>
+    <select id="class-select" onchange="onClassChange()">
+      <option value="1A">1A</option><option value="1B">1B</option><option value="1C">1C</option><option value="1D">1D</option>
+      <option value="2A">2A</option><option value="2B">2B</option><option value="2C">2C</option><option value="2D">2D</option>
+      <option value="3A">3A</option><option value="3B">3B</option><option value="3C">3C</option><option value="3D">3D</option>
+    </select>
 
-      <label for="csv-file">面談順CSVファイルの読み込み</label>
-      <input type="file" id="csv-file" accept=".csv" onchange="handleCSVImport(event)">
-      <p style="font-size: 0.8rem; color: #a0aec0; text-align: left; margin: 0;">
-        ※CSVファイルの行数を通し番号（総人数）としてカウントします。
-      </p>
+    <!-- 2. 生徒名選択 -->
+    <label for="student-select">お子様のお名前</label>
+    <select id="student-select" onchange="onStudentChange()">
+      <option value="">選択してください</option>
+    </select>
+
+    <!-- 3. 呼び出し状況表示 -->
+    <div class="status-box">
+      <div style="font-size: 0.9rem; color: #4a5568;">現在の呼び出し番号</div>
+      <div class="num-large" id="current-number">--</div>
+      <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 15px 0;">
+      <div id="user-status-text" class="wait-count">お名前を選択してください</div>
     </div>
 
-    <!-- 2. 呼出番号の操作画面 -->
-    <div>
-      <div style="color: #718096; font-size: 0.9rem;">現在の呼出番号</div>
-      <div class="number-display" id="admin-current-num">0</div>
-      <div class="total-info">（全 <span id="admin-total-num">--</span> 人中）</div>
-
-      <div class="btn-group">
-        <button class="btn-prev" onclick="changeNumber(-1)">-1 戻す</button>
-        <button class="btn-next" onclick="changeNumber(1)">+1 次の人を呼ぶ</button>
-      </div>
-
-      <br>
-      <button class="btn-reset" onclick="resetNumber()">1番にリセット</button>
-      <div class="status-msg" id="status-msg"></div>
-    </div>
+    <!-- 4. 通知登録ボタン -->
+    <button id="notify-btn" class="btn-notify" onclick="subscribePush()">自分の順番が近づいたら通知を受け取る</button>
   </div>
 
   <script>
-    // Supabaseの接続設定（index.htmlと同じ情報）
     const SUPABASE_URL = 'https://vyaaydlpndgptjpcasfz.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ5YWF5ZGxwbmRncHRqcGNhc2Z6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1OTQ2MjgsImV4cCI6MjEwMDE3MDYyOH0.Px5jQ4cghT9JDMKOJxBjcsQ7o4bJRnAxvXHljrV5aDk';
+    const VAPID_PUBLIC_KEY = 'YOUR_PUBLIC_KEY_HERE'; // 先ほど発行したPublic Key
+
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    let currentClassID = '1A';
-    let currentNumber = 0;
+    let selectedClass = '1A';
+    let myOrderNum = null;
+    let currentCallingNum = 0;
 
-    // 初期化処理
-    window.onload = () => {
-      onClassChange();
+    window.onload = async () => {
+      // Service Workerの登録
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js');
+      }
+      await onClassChange();
+      listenToRealtime();
     };
 
-    // クラス切り替え時の処理
+    // クラス切り替え：生徒名簿を取得
     async function onClassChange() {
-      currentClassID = document.getElementById('class-select').value;
-      
-      // Supabaseから選択されたクラスの現在の呼び出し番号を取得
-      const { data, error } = await supabaseClient
+      selectedClass = document.getElementById('class-select').value;
+      const studentSelect = document.getElementById('student-select');
+      studentSelect.innerHTML = '<option value="">読み込み中...</option>';
+
+      // 1. 生徒名簿を取得
+      const { data: students } = await supabaseClient
+        .from('students')
+        .select('*')
+        .eq('class_id', selectedClass)
+        .order('order_num', { ascending: true });
+
+      studentSelect.innerHTML = '<option value="">お名前を選択してください</option>';
+      if (students && students.length > 0) {
+        students.forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s.order_num;
+          opt.textContent = `${s.order_num}番：${s.student_name}`;
+          studentSelect.appendChild(opt);
+        });
+      } else {
+        studentSelect.innerHTML = '<option value="">名簿がまだ登録されていません</option>';
+      }
+
+      // 2. 現在の呼出番号を取得
+      const { data: classData } = await supabaseClient
         .from('classes')
         .select('current_number')
-        .eq('class_id', currentClassID)
+        .eq('class_id', selectedClass)
         .single();
 
-      if (data) {
-        currentNumber = data.current_number || 0;
-      } else {
-        currentNumber = 0;
+      currentCallingNum = classData ? classData.current_number || 0 : 0;
+      updateUI();
+    }
+
+    // 生徒選択時の処理
+    function onStudentChange() {
+      const val = document.getElementById('student-select').value;
+      myOrderNum = val ? parseInt(val, 10) : null;
+      updateUI();
+    }
+
+    // UI画面の更新
+    function updateUI() {
+      document.getElementById('current-number').textContent = `${currentCallingNum} 番`;
+
+      const statusEl = document.getElementById('user-status-text');
+      if (!myOrderNum) {
+        statusEl.textContent = 'お名前を選択してください';
+        statusEl.style.color = '#718096';
+        return;
       }
-      updateAdminUI();
+
+      const diff = myOrderNum - currentCallingNum;
+
+      if (diff > 0) {
+        statusEl.textContent = `あなたの順番まで あと ${diff} 人`;
+        statusEl.style.color = '#dd6b20';
+      } else if (diff === 0) {
+        statusEl.textContent = '🎉 あなたの順番です！教室へお越しください';
+        statusEl.style.color = '#e53e3e';
+      } else {
+        statusEl.textContent = '呼び出しは終了しました';
+        statusEl.style.color = '#718096';
+      }
     }
 
-    // CSVファイルの読み込み処理（行数をカウントして番号化）
-    function handleCSVImport(event) {
-      const file = event.target.files[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = function(e) {
-        const text = e.target.result;
-        // 改行コードで分割し、空行を除外して有効な行数（人数）をカウント
-        const lines = text.split(/\r\n|\n/).filter(line => line.trim() !== '');
-        
-        // ヘッダー行（「名前」「順番」など）がある場合は1行引く調整（必要に応じて）
-        const totalCount = lines.length;
-        
-        document.getElementById('admin-total-num').textContent = totalCount;
-        showStatusMsg(`CSVから ${totalCount} 名の順番を読み込みました！`);
-      };
-      reader.readAsText(file);
+    // リアルタイム更新（先生が番号を変えたら自動反映）
+    function listenToRealtime() {
+      supabaseClient
+        .channel('public:classes')
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'classes' }, (payload) => {
+          if (payload.new.class_id === selectedClass) {
+            currentCallingNum = payload.new.current_number;
+            updateUI();
+          }
+        })
+        .subscribe();
     }
 
-    // 呼び出し番号を変更して Supabase に送信
-    async function changeNumber(delta) {
-      const nextNum = Math.max(0, currentNumber + delta);
-      
-      const { error } = await supabaseClient
-        .from('classes')
-        .upsert({ 
-          class_id: currentClassID, 
-          current_number: nextNum,
-          updated_at: new Date().toISOString()
+    // Push通知の登録
+    async function subscribePush() {
+      if (!myOrderNum) {
+        alert('先にお名前を選択してください。');
+        return;
+      }
+
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: VAPID_PUBLIC_KEY
         });
 
-      if (!error) {
-        currentNumber = nextNum;
-        updateAdminUI();
-        showStatusMsg(`${currentClassID}: ${currentNumber}番 に更新しました`);
-      } else {
-        console.error('更新エラー:', error);
-        alert('番号の更新に失敗しました。');
+        // Supabaseに宛先＆ターゲットの順番（order_num）を保存
+        await supabaseClient.from('push_subscriptions').upsert({
+          class_id: selectedClass,
+          order_num: myOrderNum,
+          subscription: sub
+        });
+
+        alert('通知の登録が完了しました！順番が近づいたら通知が届きます。');
+      } catch (err) {
+        console.error('通知登録エラー:', err);
+        alert('通知の設定に失敗しました。ブラウザの通知許可を確認してください。');
       }
-    }
-
-    // 1番にリセット
-    async function resetNumber() {
-      if (confirm('呼び出し番号を 1 に戻しますか？')) {
-        currentNumber = 0;
-        await changeNumber(1);
-      }
-    }
-
-    // 画面の数字表示を更新
-    function updateAdminUI() {
-      document.getElementById('admin-current-num').textContent = `${currentNumber}`;
-    }
-
-    // 操作メッセージの表示
-    function showStatusMsg(msg) {
-      const el = document.getElementById('status-msg');
-      el.textContent = msg;
-      setTimeout(() => { el.textContent = ''; }, 3000);
     }
   </script>
 </body>
