@@ -109,6 +109,63 @@
   function updateNumberDisplay(num) {
     document.getElementById('current-number').textContent = `${num}番`;
   }
+  // Base64文字列をUint8Arrayに変換するヘルパー関数（必須）
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding)
+    .replace(/\-/g, '+')
+    .replace(/_/g, '/');
+
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+async function requestNotification() {
+  if (!('serviceWorker' in navigator)) {
+    alert('お使いのブラウザは通知に対応していません。');
+    return;
+  }
+
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+      const reg = await navigator.serviceWorker.ready;
+
+      // 1. ここに生成した VAPID Public Key を貼り付けます
+      const vapidPublicKey = 'ここに発行したPublic Keyを入れる'; 
+      const convertedKey = urlBase64ToUint8Array(vapidPublicKey);
+
+      // 2. ブラウザから Push 購読情報（Subscription）を取得
+      const subscription = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: convertedKey
+      });
+
+      // 3. Supabaseに保存（JSON形式に変換して保存します）
+      const { error } = await supabase.from('push_subscriptions').insert({
+        class_id: classID,
+        subscription: subscription.toJSON()
+      });
+
+      if (error) {
+        console.error('Supabase保存エラー:', error);
+        alert('通知登録に失敗しました。');
+      } else {
+        alert(`${classID} の通知を設定しました！`);
+      }
+    } else {
+      alert('通知の許可が得られませんでした。');
+    }
+  } catch (err) {
+    console.error('通知設定エラー:', err);
+    alert('通知設定中にエラーが発生しました。');
+  }
+}
 </script>
 </body>
 </html>
