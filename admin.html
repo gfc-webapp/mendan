@@ -161,48 +161,70 @@
       updateAdminUI();
     }
 
-    // CSV読み込み＆Supabaseへの名簿登録
+    // CSV読み込み＆Supabaseへの名簿登録（Shift_JIS / UTF-8 両対応の文字化け防止版）
     async function handleCSVImport(event) {
       const file = event.target.files[0];
       if (!file) return;
 
       const reader = new FileReader();
+      
       reader.onload = async function(e) {
-        const lines = e.target.result.split(/\r\n|\n/).filter(line => line.trim() !== '');
-        
-        // ヘッダー（名前、氏名など）が含まれている場合は除外する判定
-        let rows = lines.map(line => line.split(',')[0].replace(/"/g, '').trim());
-        if (rows[0] === '名前' || rows[0] === '氏名' || rows[0] === '生徒名') {
-          rows.shift();
-        }
+        let text = e.target.result;
 
-        if (rows.length === 0) {
-          alert('有効な名前データが見つかりませんでした。');
+        // 文字化け記号（）が含まれる場合の文字コード補正
+        if (text.includes('')) {
+          const utf8Reader = new FileReader();
+          utf8Reader.onload = async function(utf8Event) {
+            await processCSVContent(utf8Event.target.result);
+          };
+          utf8Reader.readAsText(file, 'UTF-8');
           return;
         }
 
-        showStatusMsg('名簿を登録中...');
-
-        // 既存のこのクラスの生徒データを削除して再登録
-        await supabaseClient.from('students').delete().eq('class_id', currentClassID);
-
-        const insertData = rows.map((name, index) => ({
-          class_id: currentClassID,
-          order_num: index + 1,
-          student_name: name
-        }));
-
-        const { error } = await supabaseClient.from('students').insert(insertData);
-
-        if (!error) {
-          showStatusMsg(`${rows.length} 名のデータインポートが完了しました！`);
-          await onClassChange();
-        } else {
-          alert('名簿のインポートに失敗しました。');
-          console.error(error);
-        }
+        await processCSVContent(text);
       };
-      reader.readAsText(file);
+
+      // 日本のExcel等で作成されたCSV向けに Shift_JIS でまず読み込む
+      reader.readAsText(file, 'Shift_JIS');
+    }
+
+    // CSVテキストを解釈してSupabaseに登録する実処理
+    async function processCSVContent(csvText) {
+      const lines = csvText.split(/\r\n|\n/).filter(line => line.trim() !== '');
+      
+      // ヘッダー（名前、氏名など）が含まれている場合は除外する判定
+      let rows = lines.map(line => line.split(',')[0].replace(/"/g, '').trim());
+      if (rows[0] === '名前' || rows[0] === '氏名' || rows[0] === '生徒名') {
+        rows.shift();
+      }
+
+      if (rows.length === 0) {
+        alert('有効な名前データが見つかりませんでした。');
+        return;
+      }
+
+      showStatusMsg('名簿を登録中...');
+
+      // 既存のこのクラスの生徒データを削除して再登録
+      await supabaseClient.from('students').delete().eq('class_id', currentClassID);
+
+      const insertData = rows.map((name, index) => ({
+        class_id: currentClassID,
+        order_num: index + 1,
+        student_name: name
+      }));
+
+      const { error } = await supabaseClient.from('students').insert(insertData);
+
+      if (!error) {
+        showStatusMsg(`${rows.length} 名のデータインポートが完了しました！`);
+        // ファイル選択の入力をリセット
+        document.getElementById('csv-file').value = '';
+        await onClassChange();
+      } else {
+        alert('名簿のインポートに失敗しました。');
+        console.error(error);
+      }
     }
 
     // 番号変更処理
@@ -221,6 +243,8 @@
         currentNumber = nextNum;
         updateAdminUI();
         showStatusMsg(`${currentClassID}: ${currentNumber}番に更新`);
+      } else {
+        console.error('番号更新エラー:', error);
       }
     }
 
