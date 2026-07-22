@@ -20,6 +20,7 @@
     .btn-notify { background: #319795; color: white; border: none; padding: 14px 20px; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; width: 100%; margin-top: 10px; }
     .btn-notify:disabled { background: #cbd5e0; cursor: not-allowed; }
     .btn-login { background: #2b6cb0; color: white; border: none; padding: 14px; border-radius: 8px; font-size: 1rem; font-weight: bold; width: 100%; margin-top: 12px; cursor: pointer; }
+    .btn-login:disabled { opacity: 0.6; cursor: not-allowed; }
     
     #main-content { display: none; }
   </style>
@@ -32,8 +33,8 @@
   <div class="card" id="auth-card">
     <h1>面談順番確認サイト</h1>
     <label for="parent-pass">お便りに記載の「パスコード」を入力</label>
-    <input type="password" id="parent-pass" placeholder="パスコードを入力">
-    <button class="btn-login" onclick="checkParentAuth()">画面を表示する</button>
+    <input type="password" id="parent-pass" placeholder="パスコードを入力" onkeydown="if(event.key==='Enter') checkParentAuth()">
+    <button class="btn-login" id="login-btn" onclick="checkParentAuth()">画面を表示する</button>
     <p id="auth-error" style="color: #e53e3e; font-size: 0.85rem; margin-top: 10px; display: none;">パスコードが違います</p>
   </div>
 
@@ -68,12 +69,9 @@
   </div>
 
   <script>
-    // 保護者用パスコードの設定（自由に変更可能です）
-    const PARENT_PASSWORD = '2026';
-
     const SUPABASE_URL = 'https://vyaaydlpndgptjpcasfz.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ5YWF5ZGxwbmRncHRqcGNhc2Z6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1OTQ2MjgsImV4cCI6MjEwMDE3MDYyOH0.Px5jQ4cghT9JDMKOJxBjcsQ7o4bJRnAxvXHljrV5aDk';
-    const VAPID_PUBLIC_KEY = 'BNwn33_C47GYb50iD4kTf0FU_AukxxxyBA-8978i9D85kZKNKlyJeEpq-HMCZrnWicGOS9jLPRfDqiZTHzw6ptE'; // 先ほど発行したPublic Key
+    const VAPID_PUBLIC_KEY = 'BNwn33_C47GYb50iD4kTf0FU_AukxxxyBA-8978i9D85kZKNKlyJeEpq-HMCZrnWicGOS9jLPRfDqiZTHzw6ptE'; // VAPID Public Key
 
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -88,13 +86,40 @@
       }
     };
 
-    function checkParentAuth() {
-      const pass = document.getElementById('parent-pass').value;
-      if (pass === PARENT_PASSWORD) {
-        localStorage.setItem('parent_authenticated', 'true');
-        showMainContent();
-      } else {
-        document.getElementById('auth-error').style.display = 'block';
+    // Vercel API経由のパスコード認証処理
+    async function checkParentAuth() {
+      const passInput = document.getElementById('parent-pass');
+      const errorEl = document.getElementById('auth-error');
+      const loginBtn = document.getElementById('login-btn');
+
+      const pass = passInput.value;
+      if (!pass) return;
+
+      errorEl.style.display = 'none';
+      loginBtn.disabled = true;
+      loginBtn.textContent = '確認中...';
+
+      try {
+        const res = await fetch('/api/check-pass', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pass, type: 'parent' })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          localStorage.setItem('parent_authenticated', 'true');
+          showMainContent();
+        } else {
+          errorEl.style.display = 'block';
+        }
+      } catch (err) {
+        console.error('認証エラー:', err);
+        alert('認証処理中にエラーが発生しました。Vercelの設定を確認してください。');
+      } finally {
+        loginBtn.disabled = false;
+        loginBtn.textContent = '画面を表示する';
       }
     }
 
