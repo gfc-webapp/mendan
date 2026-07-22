@@ -11,7 +11,7 @@
     h1 { font-size: 1.5rem; color: #2d3748; margin-top: 0; }
     
     label { display: block; font-weight: bold; margin: 12px 0 6px 0; text-align: left; color: #4a5568; }
-    select { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e0; font-size: 1rem; box-sizing: border-box; }
+    select, input[type="password"] { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e0; font-size: 1rem; box-sizing: border-box; }
 
     .status-box { background: #ebf8ff; border: 1px solid #bee3f8; border-radius: 8px; padding: 15px; margin: 20px 0; }
     .num-large { font-size: 3rem; font-weight: bold; color: #2b6cb0; margin: 5px 0; }
@@ -19,13 +19,26 @@
     
     .btn-notify { background: #319795; color: white; border: none; padding: 14px 20px; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; width: 100%; margin-top: 10px; }
     .btn-notify:disabled { background: #cbd5e0; cursor: not-allowed; }
+    .btn-login { background: #2b6cb0; color: white; border: none; padding: 14px; border-radius: 8px; font-size: 1rem; font-weight: bold; width: 100%; margin-top: 12px; cursor: pointer; }
+    
+    #main-content { display: none; }
   </style>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
-  <div class="card">
+  <!-- 1. パスコード認証画面 -->
+  <div class="card" id="auth-card">
+    <h1>面談順番確認サイト</h1>
+    <label for="parent-pass">お便りに記載の「パスコード」を入力</label>
+    <input type="password" id="parent-pass" placeholder="パスコードを入力">
+    <button class="btn-login" onclick="checkParentAuth()">画面を表示する</button>
+    <p id="auth-error" style="color: #e53e3e; font-size: 0.85rem; margin-top: 10px; display: none;">パスコードが違います</p>
+  </div>
+
+  <!-- 2. 保護者用メインコンテンツ -->
+  <div class="card" id="main-content">
     <h1>面談順番リアルタイム確認</h1>
 
     <!-- 1. クラス選択 -->
@@ -55,10 +68,12 @@
   </div>
 
   <script>
+    // 保護者用パスコードの設定（自由に変更可能です）
+    const PARENT_PASSWORD = '2026';
+
     const SUPABASE_URL = 'https://vyaaydlpndgptjpcasfz.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ5YWF5ZGxwbmRncHRqcGNhc2Z6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1OTQ2MjgsImV4cCI6MjEwMDE3MDYyOH0.Px5jQ4cghT9JDMKOJxBjcsQ7o4bJRnAxvXHljrV5aDk';
-    const VAPID_PUBLIC_KEY = 'BNwn33_C47GYb50iD4kTf0FU_AukxxxyBA-8978i9D85kZKNKlyJeEpq-
-HMCZrnWicGOS9jLPRfDqiZTHzw6ptE'; // 先ほど発行したPublic Key
+    const VAPID_PUBLIC_KEY = 'BNwn33_C47GYb50iD4kTf0FU_AukxxxyBA-8978i9D85kZKNKlyJeEpq-HMCZrnWicGOS9jLPRfDqiZTHzw6ptE'; // 先ほど発行したPublic Key
 
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -67,13 +82,33 @@ HMCZrnWicGOS9jLPRfDqiZTHzw6ptE'; // 先ほど発行したPublic Key
     let currentCallingNum = 0;
 
     window.onload = async () => {
+      // 一度パスコードを入力していれば自動ログイン
+      if (localStorage.getItem('parent_authenticated') === 'true') {
+        showMainContent();
+      }
+    };
+
+    function checkParentAuth() {
+      const pass = document.getElementById('parent-pass').value;
+      if (pass === PARENT_PASSWORD) {
+        localStorage.setItem('parent_authenticated', 'true');
+        showMainContent();
+      } else {
+        document.getElementById('auth-error').style.display = 'block';
+      }
+    }
+
+    async function showMainContent() {
+      document.getElementById('auth-card').style.display = 'none';
+      document.getElementById('main-content').style.display = 'block';
+
       // Service Workerの登録
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('sw.js');
       }
       await onClassChange();
       listenToRealtime();
-    };
+    }
 
     // クラス切り替え：生徒名簿を取得
     async function onClassChange() {
