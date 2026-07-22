@@ -20,6 +20,7 @@
     .btn-group { display: flex; gap: 10px; justify-content: center; }
     button { border: none; padding: 16px 24px; border-radius: 8px; font-size: 1.2rem; font-weight: bold; cursor: pointer; flex: 1; transition: opacity 0.2s; }
     button:hover { opacity: 0.9; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
     .btn-next { background: #319795; color: white; }
     .btn-prev { background: #e53e3e; color: white; }
     .btn-reset { background: #718096; color: white; padding: 8px 16px; font-size: 0.9rem; flex: none; margin-top: 15px; }
@@ -37,8 +38,8 @@
   <div class="card" id="auth-card">
     <h2>管理者ログイン</h2>
     <label for="admin-pass">先生用パスワードを入力してください</label>
-    <input type="password" id="admin-pass" placeholder="パスワードを入力">
-    <button class="btn-login" onclick="checkAdminAuth()">ログイン</button>
+    <input type="password" id="admin-pass" placeholder="パスワードを入力" onkeydown="if(event.key==='Enter') checkAdminAuth()">
+    <button class="btn-login" id="login-btn" onclick="checkAdminAuth()">ログイン</button>
     <p id="auth-error" style="color: #e53e3e; font-size: 0.85rem; margin-top: 10px; display: none;">パスワードが違います</p>
   </div>
 
@@ -78,9 +79,6 @@
   </div>
 
   <script>
-    // 先生用パスワードの設定（自由に変更可能です）
-    const ADMIN_PASSWORD = 'teacher123';
-
     const SUPABASE_URL = 'https://vyaaydlpndgptjpcasfz.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ5YWF5ZGxwbmRncHRqcGNhc2Z6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1OTQ2MjgsImV4cCI6MjEwMDE3MDYyOH0.Px5jQ4cghT9JDMKOJxBjcsQ7o4bJRnAxvXHljrV5aDk';
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -96,13 +94,40 @@
       }
     };
 
-    function checkAdminAuth() {
-      const pass = document.getElementById('admin-pass').value;
-      if (pass === ADMIN_PASSWORD) {
-        sessionStorage.setItem('admin_authenticated', 'true');
-        showMainContent();
-      } else {
-        document.getElementById('auth-error').style.display = 'block';
+    // Vercel API経由の認証処理
+    async function checkAdminAuth() {
+      const passInput = document.getElementById('admin-pass');
+      const errorEl = document.getElementById('auth-error');
+      const loginBtn = document.getElementById('login-btn');
+      
+      const pass = passInput.value;
+      if (!pass) return;
+
+      errorEl.style.display = 'none';
+      loginBtn.disabled = true;
+      loginBtn.textContent = '確認中...';
+
+      try {
+        const res = await fetch('/api/check-pass', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pass, type: 'admin' })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          sessionStorage.setItem('admin_authenticated', 'true');
+          showMainContent();
+        } else {
+          errorEl.style.display = 'block';
+        }
+      } catch (err) {
+        console.error('認証エラー:', err);
+        alert('認証処理中にエラーが発生しました。Vercelの環境変数・APIの設定を確認してください。');
+      } finally {
+        loginBtn.disabled = false;
+        loginBtn.textContent = 'ログイン';
       }
     }
 
