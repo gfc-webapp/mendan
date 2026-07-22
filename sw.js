@@ -3,6 +3,7 @@ const CACHE_NAME = 'mendan-app-v1';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
+  './admin.html',
   './manifest.json',
 ];
 
