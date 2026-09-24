@@ -67,7 +67,7 @@
   </div>
 
   <script>
-    // ★デプロイしたGoogle Apps ScriptのウェブアプリURLを指定してください
+    // ★デプロイしたGoogle Apps ScriptのウェブアプリURLを指定してください（/exec で終わるURL）
     const GAS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycby1CQ6sKe8PU3_tzaeYkh8xQExZxqjKr5427SuRM4P9AXuwAoeR2VnZBvAZ7Pa0tzC-/exec'; 
     const VAPID_PUBLIC_KEY = 'BNwn33_C47GYb50iD4kTf0FU_AukxxxyBA-8978i9D85kZKNKlyJeEpq-HMCZrnWicGOS9jLPRfDqiZTHzw6ptE';
 
@@ -137,7 +137,14 @@
       studentSelect.innerHTML = '<option value="">読み込み中...</option>';
 
       try {
-        const res = await fetch(`${GAS_WEB_APP_URL}?action=getData&class_id=${selectedClass}`);
+        const res = await fetch(`${GAS_WEB_APP_URL}?action=getData&class_id=${selectedClass}`, {
+          redirect: 'follow'
+        });
+
+        if (!res.ok) {
+          throw new Error(`HTTP Error: ${res.status}`);
+        }
+
         const data = await res.json();
 
         if (data.success) {
@@ -156,11 +163,38 @@
           currentCallingNum = data.current_number || 0;
           updateUI();
         } else {
-          console.error('データ取得失敗:', data.error);
+          console.error('GAS処理エラー:', data.error);
+          studentSelect.innerHTML = '<option value="">名簿がまだ登録されていません</option>';
         }
       } catch (err) {
         console.error('GAS通信エラー:', err);
+        // 通信失敗時も読み込み中のままにせず、切り替える
+        studentSelect.innerHTML = '<option value="">データの取得に失敗しました</option>';
       }
+    }
+
+    // 5秒おきの定期取得（WebSocket遮断対策のポーリング）
+    function startPolling() {
+      if (pollingTimer) clearInterval(pollingTimer);
+
+      pollingTimer = setInterval(async () => {
+        try {
+          const res = await fetch(`${GAS_WEB_APP_URL}?action=getData&class_id=${selectedClass}`, {
+            redirect: 'follow'
+          });
+          if (!res.ok) return;
+
+          const data = await res.json();
+          if (data.success) {
+            if (currentCallingNum !== data.current_number) {
+              currentCallingNum = data.current_number || 0;
+              updateUI();
+            }
+          }
+        } catch (err) {
+          console.error('ポーリング通信エラー:', err);
+        }
+      }, 5000);
     }
 
     // 生徒選択時の処理
@@ -193,27 +227,6 @@
         statusEl.textContent = '呼び出しは終了しました';
         statusEl.style.color = '#718096';
       }
-    }
-
-    // 5秒おきの定期取得（WebSocket遮断対策のポーリング）
-    function startPolling() {
-      if (pollingTimer) clearInterval(pollingTimer);
-
-      pollingTimer = setInterval(async () => {
-        try {
-          const res = await fetch(`${GAS_WEB_APP_URL}?action=getData&class_id=${selectedClass}`);
-          const data = await res.json();
-
-          if (data.success) {
-            if (currentCallingNum !== data.current_number) {
-              currentCallingNum = data.current_number || 0;
-              updateUI();
-            }
-          }
-        } catch (err) {
-          console.error('ポーリング通信エラー:', err);
-        }
-      }, 5000); // 5秒間隔
     }
 
     // Push通知の登録 (GAS経由でSupabaseへ保存)
