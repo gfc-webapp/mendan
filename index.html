@@ -24,8 +24,6 @@
     
     #main-content { display: none; }
   </style>
-
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -69,18 +67,16 @@
   </div>
 
   <script>
-    const SUPABASE_URL = 'https://vyaaydlpndgptjpcasfz.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ5YWF5ZGxwbmRncHRqcGNhc2Z6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1OTQ2MjgsImV4cCI6MjEwMDE3MDYyOH0.Px5jQ4cghT9JDMKOJxBjcsQ7o4bJRnAxvXHljrV5aDk';
-    const VAPID_PUBLIC_KEY = 'BNwn33_C47GYb50iD4kTf0FU_AukxxxyBA-8978i9D85kZKNKlyJeEpq-HMCZrnWicGOS9jLPRfDqiZTHzw6ptE'; // VAPID Public Key
-
-    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // ★デプロイしたGoogle Apps ScriptのウェブアプリURLを指定してください
+    const GAS_WEB_APP_URL = 'YOUR_GAS_DEPLOYMENT_URL_HERE'; 
+    const VAPID_PUBLIC_KEY = 'BNwn33_C47GYb50iD4kTf0FU_AukxxxyBA-8978i9D85kZKNKlyJeEpq-HMCZrnWicGOS9jLPRfDqiZTHzw6ptE';
 
     let selectedClass = '1A';
     let myOrderNum = null;
     let currentCallingNum = 0;
+    let pollingTimer = null;
 
     window.onload = async () => {
-      // 一度パスコードを入力していれば自動ログイン
       if (localStorage.getItem('parent_authenticated') === 'true') {
         showMainContent();
       }
@@ -127,48 +123,44 @@
       document.getElementById('auth-card').style.display = 'none';
       document.getElementById('main-content').style.display = 'block';
 
-      // Service Workerの登録
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('sw.js');
       }
       await onClassChange();
-      listenToRealtime();
+      startPolling();
     }
 
-    // クラス切り替え：生徒名簿を取得
+    // クラス切り替え：GAS経由で名簿と現在の番号を取得
     async function onClassChange() {
       selectedClass = document.getElementById('class-select').value;
       const studentSelect = document.getElementById('student-select');
       studentSelect.innerHTML = '<option value="">読み込み中...</option>';
 
-      // 1. 生徒名簿を取得
-      const { data: students } = await supabaseClient
-        .from('students')
-        .select('*')
-        .eq('class_id', selectedClass)
-        .order('order_num', { ascending: true });
+      try {
+        const res = await fetch(`${GAS_WEB_APP_URL}?action=getData&class_id=${selectedClass}`);
+        const data = await res.json();
 
-      studentSelect.innerHTML = '<option value="">お名前を選択してください</option>';
-      if (students && students.length > 0) {
-        students.forEach(s => {
-          const opt = document.createElement('option');
-          opt.value = s.order_num;
-          opt.textContent = `${s.order_num}番：${s.student_name}`;
-          studentSelect.appendChild(opt);
-        });
-      } else {
-        studentSelect.innerHTML = '<option value="">名簿がまだ登録されていません</option>';
+        if (data.success) {
+          studentSelect.innerHTML = '<option value="">お名前を選択してください</option>';
+          if (data.students && data.students.length > 0) {
+            data.students.forEach(s => {
+              const opt = document.createElement('option');
+              opt.value = s.order_num;
+              opt.textContent = `${s.order_num}番：${s.student_name}`;
+              studentSelect.appendChild(opt);
+            });
+          } else {
+            studentSelect.innerHTML = '<option value="">名簿がまだ登録されていません</option>';
+          }
+
+          currentCallingNum = data.current_number || 0;
+          updateUI();
+        } else {
+          console.error('データ取得失敗:', data.error);
+        }
+      } catch (err) {
+        console.error('GAS通信エラー:', err);
       }
-
-      // 2. 現在の呼出番号を取得
-      const { data: classData } = await supabaseClient
-        .from('classes')
-        .select('current_number')
-        .eq('class_id', selectedClass)
-        .single();
-
-      currentCallingNum = classData ? classData.current_number || 0 : 0;
-      updateUI();
     }
 
     // 生徒選択時の処理
@@ -203,20 +195,28 @@
       }
     }
 
-    // リアルタイム更新（先生が番号を変えたら自動反映）
-    function listenToRealtime() {
-      supabaseClient
-        .channel('public:classes')
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'classes' }, (payload) => {
-          if (payload.new.class_id === selectedClass) {
-            currentCallingNum = payload.new.current_number;
-            updateUI();
+    // 5秒おきの定期取得（WebSocket遮断対策のポーリング）
+    function startPolling() {
+      if (pollingTimer) clearInterval(pollingTimer);
+
+      pollingTimer = setInterval(async () => {
+        try {
+          const res = await fetch(`${GAS_WEB_APP_URL}?action=getData&class_id=${selectedClass}`);
+          const data = await res.json();
+
+          if (data.success) {
+            if (currentCallingNum !== data.current_number) {
+              currentCallingNum = data.current_number || 0;
+              updateUI();
+            }
           }
-        })
-        .subscribe();
+        } catch (err) {
+          console.error('ポーリング通信エラー:', err);
+        }
+      }, 5000); // 5秒間隔
     }
 
-    // Push通知の登録
+    // Push通知の登録 (GAS経由でSupabaseへ保存)
     async function subscribePush() {
       if (!myOrderNum) {
         alert('先にお名前を選択してください。');
@@ -230,11 +230,16 @@
           applicationServerKey: VAPID_PUBLIC_KEY
         });
 
-        // Supabaseに宛先＆ターゲットの順番（order_num）を保存
-        await supabaseClient.from('push_subscriptions').upsert({
-          class_id: selectedClass,
-          order_num: myOrderNum,
-          subscription: sub
+        // GAS経由でSupabaseに保存
+        await fetch(GAS_WEB_APP_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' }, // CORS回避のためtext/plainで送信
+          body: JSON.stringify({
+            action: 'saveSubscription',
+            class_id: selectedClass,
+            order_num: myOrderNum,
+            subscription: sub
+          })
         });
 
         alert('通知の登録が完了しました！順番が近づいたら通知が届きます。');
