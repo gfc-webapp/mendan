@@ -29,8 +29,6 @@
     .status-msg { margin-top: 15px; font-size: 0.85rem; color: #38a169; font-weight: bold; }
     #main-content { display: none; }
   </style>
-
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -68,27 +66,25 @@
       <div class="total-info">（全名簿登録数: <span id="admin-total-num">0</span> 名）</div>
 
       <div class="btn-group">
-        <button class="btn-prev" onclick="changeNumber(-1)">-1 戻す</button>
-        <button class="btn-next" onclick="changeNumber(1)">+1 次の人を呼ぶ</button>
+        <button class="btn-prev" id="btn-prev" onclick="changeNumber(-1)">-1 戻す</button>
+        <button class="btn-next" id="btn-next" onclick="changeNumber(1)">+1 次の人を呼ぶ</button>
       </div>
 
       <br>
-      <button class="btn-reset" onclick="resetNumber()">1番にリセット</button>
+      <button class="btn-reset" id="btn-reset" onclick="resetNumber()">1番にリセット</button>
       <div class="status-msg" id="status-msg"></div>
     </div>
   </div>
 
   <script>
-    const SUPABASE_URL = 'https://vyaaydlpndgptjpcasfz.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ5YWF5ZGxwbmRncHRqcGNhc2Z6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1OTQ2MjgsImV4cCI6MjEwMDE3MDYyOH0.Px5jQ4cghT9JDMKOJxBjcsQ7o4bJRnAxvXHljrV5aDk';
-    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const GAS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycby1CQ6sKe8PU3_tzaeYkh8xQExZxqjKr5427SuRM4P9AXuwAoeR2VnZBvAZ7Pa0tzC-/exec';
 
     let currentClassID = '1A';
     let currentNumber = 0;
     let studentsList = [];
+    let isUpdating = false;
 
     window.onload = () => {
-      // ログイン済みかチェック
       if (sessionStorage.getItem('admin_authenticated') === 'true') {
         showMainContent();
       }
@@ -137,31 +133,37 @@
       onClassChange();
     }
 
-    // クラス切り替え時：現在の番号と名簿一覧を取得
+    // クラス切り替え時：GAS経由で現在の番号と名簿一覧を取得
     async function onClassChange() {
       currentClassID = document.getElementById('class-select').value;
-      
-      // 1. 現在の呼出番号を取得
-      const { data: classData } = await supabaseClient
-        .from('classes')
-        .select('current_number')
-        .eq('class_id', currentClassID)
-        .single();
+      document.getElementById('admin-current-name').textContent = '読み込み中...';
 
-      currentNumber = classData ? classData.current_number || 0 : 0;
+      try {
+        const res = await fetch(`${GAS_WEB_APP_URL}?action=getData&class_id=${encodeURIComponent(currentClassID)}`, {
+          redirect: 'follow'
+        });
 
-      // 2. 名簿リストを取得
-      const { data: studentData } = await supabaseClient
-        .from('students')
-        .select('*')
-        .eq('class_id', currentClassID)
-        .order('order_num', { ascending: true });
+        if (!res.ok) {
+          throw new Error(`HTTP Error: ${res.status}`);
+        }
 
-      studentsList = studentData || [];
-      updateAdminUI();
+        const data = await res.json();
+
+        if (data.success) {
+          currentNumber = data.current_number || 0;
+          studentsList = data.students || [];
+          updateAdminUI();
+        } else {
+          console.error('GASデータ取得エラー:', data.error || data.message);
+          alert('データの取得に失敗しました。');
+        }
+      } catch (err) {
+        console.error('GAS通信エラー:', err);
+        alert('GASとの通信に失敗しました。');
+      }
     }
 
-    // CSV読み込み（バイナリとして読み込んでからTextDecoderで正確にShift_JIS/UTF-8をデコード）
+    // CSV読み込み（UTF-8優先で判定し、失敗時のみShift_JISでデコード）
     async function handleCSVImport(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -173,34 +175,28 @@
         
         let text = '';
         try {
-          // まず Shift_JIS (Shift_JIS / Windows-31J) としてデコードを試みる
-          const sjisDecoder = new TextDecoder('shift-jis', { fatal: true });
-          text = sjisDecoder.decode(buffer);
-        } catch (err) {
-          // Shift_JIS デコードに失敗（またはUTF-8形式）の場合は UTF-8 でデコード
-          const utf8Decoder = new TextDecoder('utf-8');
+          const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
           text = utf8Decoder.decode(buffer);
+        } catch (err) {
+          const sjisDecoder = new TextDecoder('shift-jis');
+          text = sjisDecoder.decode(buffer);
         }
 
         await processCSVContent(text);
       };
 
-      // ファイルをバイナリ（ArrayBuffer）として読み込む
       reader.readAsArrayBuffer(file);
     }
 
-    // CSVテキストを解釈してSupabaseに登録する実処理
+    // CSVテキストを解釈してGAS経由でSupabaseに登録
     async function processCSVContent(csvText) {
-      // 改行コード（CRLF, LF, CR）すべてに対応して分割
       const lines = csvText.split(/\r\n|\n|\r/).filter(line => line.trim() !== '');
       
-      // 1列目（名前）を抽出（カンマ区切りおよびダブルクォーテーションの削除）
       let rows = lines.map(line => {
         const cols = line.split(',');
         return cols[0] ? cols[0].replace(/^"|"$/g, '').trim() : '';
       }).filter(name => name !== '');
 
-      // ヘッダー行（「名前」「氏名」等）が含まれている場合は除外
       if (rows.length > 0 && ['名前', '氏名', '生徒名', 'name'].includes(rows[0].toLowerCase())) {
         rows.shift();
       }
@@ -212,45 +208,68 @@
 
       showStatusMsg('名簿を登録中...');
 
-      // 既存のこのクラスの生徒データを削除して再登録
-      await supabaseClient.from('students').delete().eq('class_id', currentClassID);
+      try {
+        const res = await fetch(GAS_WEB_APP_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          redirect: 'follow',
+          body: JSON.stringify({
+            action: 'importStudents',
+            class_id: currentClassID,
+            names: rows
+          })
+        });
 
-      const insertData = rows.map((name, index) => ({
-        class_id: currentClassID,
-        order_num: index + 1,
-        student_name: name
-      }));
+        const data = await res.json();
 
-      const { error } = await supabaseClient.from('students').insert(insertData);
-
-      if (!error) {
-        showStatusMsg(`${rows.length} 名のデータインポートが完了しました！`);
-        document.getElementById('csv-file').value = '';
-        await onClassChange();
-      } else {
-        alert('名簿のインポートに失敗しました。');
-        console.error(error);
+        if (data.success) {
+          showStatusMsg(`${rows.length} 名のデータインポートが完了しました！`);
+          document.getElementById('csv-file').value = '';
+          await onClassChange();
+        } else {
+          alert('名簿のインポートに失敗しました。');
+          console.error(data.error);
+        }
+      } catch (err) {
+        alert('名簿のインポート中に通信エラーが発生しました。');
+        console.error(err);
       }
     }
 
-    // 番号変更処理
+    // 番号変更処理（GAS経由）
     async function changeNumber(delta) {
+      if (isUpdating) return;
+
       const nextNum = Math.max(0, currentNumber + delta);
-      
-      const { error } = await supabaseClient
-        .from('classes')
-        .upsert({ 
-          class_id: currentClassID, 
-          current_number: nextNum,
-          updated_at: new Date().toISOString()
+      setActionButtonsDisabled(true);
+
+      try {
+        const res = await fetch(GAS_WEB_APP_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          redirect: 'follow',
+          body: JSON.stringify({
+            action: 'updateNumber',
+            class_id: currentClassID,
+            current_number: nextNum
+          })
         });
 
-      if (!error) {
-        currentNumber = nextNum;
-        updateAdminUI();
-        showStatusMsg(`${currentClassID}: ${currentNumber}番に更新`);
-      } else {
-        console.error('番号更新エラー:', error);
+        const data = await res.json();
+
+        if (data.success) {
+          currentNumber = nextNum;
+          updateAdminUI();
+          showStatusMsg(`${currentClassID}: ${currentNumber}番に更新`);
+        } else {
+          console.error('番号更新エラー:', data.error);
+          alert('番号の更新に失敗しました。');
+        }
+      } catch (err) {
+        console.error('番号更新通信エラー:', err);
+        alert('通信エラーにより番号を更新できませんでした。');
+      } finally {
+        setActionButtonsDisabled(false);
       }
     }
 
@@ -261,12 +280,18 @@
       }
     }
 
+    function setActionButtonsDisabled(disabled) {
+      isUpdating = disabled;
+      document.getElementById('btn-prev').disabled = disabled;
+      document.getElementById('btn-next').disabled = disabled;
+      document.getElementById('btn-reset').disabled = disabled;
+    }
+
     // UI更新
     function updateAdminUI() {
       document.getElementById('admin-current-num').textContent = currentNumber;
       document.getElementById('admin-total-num').textContent = studentsList.length;
 
-      // 現在の順番の生徒名を探す
       const currentStudent = studentsList.find(s => s.order_num === currentNumber);
       const nameEl = document.getElementById('admin-current-name');
       
