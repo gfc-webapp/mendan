@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="manifest" href="manifest.json">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>面談順番確認サイト</title>
   <style>
     body { font-family: sans-serif; text-align: center; padding: 20px; background: #f0f4f8; margin: 0; }
@@ -63,13 +66,14 @@
     </div>
 
     <!-- 4. 通知登録ボタン -->
-    <button id="notify-btn" class="btn-notify" onclick="subscribePush()">自分の順番が近づいたら通知を受け取る<br>(beta/!不安定)</button>
+    <button id="notify-btn" class="btn-notify" onclick="subscribePush()">自分の順番が近づいたら通知を受け取る</button>
   </div>
 
   <script>
-    // ★デプロイしたGoogle Apps ScriptのウェブアプリURLを指定してください（/exec で終わるURL）
+    // ★GASのウェブアプリURL（新規デプロイし直した場合は書き換え）
     const GAS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycby1CQ6sKe8PU3_tzaeYkh8xQExZxqjKr5427SuRM4P9AXuwAoeR2VnZBvAZ7Pa0tzC-/exec'; 
-    const VAPID_PUBLIC_KEY = 'BNwn33_C47GYb50iD4kTf0FU_AukxxxyBA-8978i9D85kZKNKlyJeEpq-HMCZrnWicGOS9jLPRfDqiZTHzw6ptE';
+    // ★VAPID公開鍵（秘密鍵が不明で再発行した場合は新しい公開鍵に書き換え）
+    const VAPID_PUBLIC_KEY = 'BGiexHWgL9mlJIZnI6cNKnsu8fkdavgJqMvNA67HjEvNBDe4nD5BXQc7FFIyRMR12Thz5VAt-lTAE_wiLNR1H5w';
 
     let selectedClass = '1A';
     let myOrderNum = null;
@@ -81,6 +85,18 @@
         showMainContent();
       }
     };
+
+    // VAPID公開鍵をUint8Arrayに変換（iPadOS Safari対応）
+    function urlBase64ToUint8Array(base64String) {
+      const padding = '='.repeat((4 - base64String.length % 4) % 4);
+      const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+      const rawData = window.atob(base64);
+      const outputArray = new Uint8Array(rawData.length);
+      for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+      }
+      return outputArray;
+    }
 
     // Vercel API経由のパスコード認証処理
     async function checkParentAuth() {
@@ -124,7 +140,7 @@
       document.getElementById('main-content').style.display = 'block';
 
       if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js');
+        await navigator.serviceWorker.register('/sw.js');
       }
       await onClassChange();
       startPolling();
@@ -135,9 +151,10 @@
       selectedClass = document.getElementById('class-select').value;
       const studentSelect = document.getElementById('student-select');
       studentSelect.innerHTML = '<option value="">読み込み中...</option>';
+      myOrderNum = null;
 
       try {
-        const res = await fetch(`${GAS_WEB_APP_URL}?action=getData&class_id=${selectedClass}`, {
+        const res = await fetch(`${GAS_WEB_APP_URL}?action=getData&class_id=${encodeURIComponent(selectedClass)}`, {
           redirect: 'follow'
         });
 
@@ -168,18 +185,17 @@
         }
       } catch (err) {
         console.error('GAS通信エラー:', err);
-        // 通信失敗時も読み込み中のままにせず、切り替える
         studentSelect.innerHTML = '<option value="">データの取得に失敗しました</option>';
       }
     }
 
-    // 5秒おきの定期取得（WebSocket遮断対策のポーリング）
+    // 5秒おきの定期取得（ポーリング）
     function startPolling() {
       if (pollingTimer) clearInterval(pollingTimer);
 
       pollingTimer = setInterval(async () => {
         try {
-          const res = await fetch(`${GAS_WEB_APP_URL}?action=getData&class_id=${selectedClass}`, {
+          const res = await fetch(`${GAS_WEB_APP_URL}?action=getData&class_id=${encodeURIComponent(selectedClass)}`, {
             redirect: 'follow'
           });
           if (!res.ok) return;
@@ -236,29 +252,58 @@
         return;
       }
 
+      // iPadOS Safariで「ホーム画面に追加」から開いているかチェック
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+      if (!('Notification' in window) || !('PushManager' in window)) {
+        alert(
+          isStandalone
+            ? 'この端末・ブラウザはWeb Push通知に対応していません。'
+            : '通知を受け取るには、Safariの共有ボタン（□↑）から「ホーム画面に追加」を行い、ホーム画面のアイコンから開いてください。'
+        );
+        return;
+      }
+
+      const btn = document.getElementById('notify-btn');
+      btn.disabled = true;
+
       try {
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+          alert('通知が許可されませんでした。iPadの「設定」→「通知」から許可してください。');
+          return;
+        }
+
+        // iPadOSでは必ずService Workerのreadyを待つ
         const reg = await navigator.serviceWorker.ready;
         const sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: VAPID_PUBLIC_KEY
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
         });
 
         // GAS経由でSupabaseに保存
-        await fetch(GAS_WEB_APP_URL, {
+        const res = await fetch(GAS_WEB_APP_URL, {
           method: 'POST',
-          headers: { 'Content-Type': 'text/plain' }, // CORS回避のためtext/plainで送信
+          headers: { 'Content-Type': 'text/plain' },
+          redirect: 'follow',
           body: JSON.stringify({
             action: 'saveSubscription',
             class_id: selectedClass,
             order_num: myOrderNum,
-            subscription: sub
+            subscription: sub.toJSON()
           })
         });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'GAS保存エラー');
+        }
 
         alert('通知の登録が完了しました！順番が近づいたら通知が届きます。');
       } catch (err) {
         console.error('通知登録エラー:', err);
-        alert('通知の設定に失敗しました。ブラウザの通知許可を確認してください。');
+        alert('通知の設定に失敗しました：' + err.message);
+      } finally {
+        btn.disabled = false;
       }
     }
   </script>
