@@ -274,11 +274,20 @@
         }
 
         // iPadOSでは必ずService Workerのreadyを待つ
+                // iPadOSでは必ずService Workerのreadyを待つ
         const reg = await navigator.serviceWorker.ready;
+
+        // 既存の古い購読が残っていれば一度解除する（鍵変更・再登録エラー対策）
+        const existingSub = await reg.pushManager.getSubscription();
+        if (existingSub) {
+          await existingSub.unsubscribe();
+        }
+
         const sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
         });
+
 
         // GAS経由でSupabaseに保存
         const res = await fetch(GAS_WEB_APP_URL, {
