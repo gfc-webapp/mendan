@@ -1,88 +1,33 @@
-const CACHE_NAME = 'mendan-app-v1';
-// キャッシュする静的ファイルのリスト
-const ASSETS_TO_CACHE = [
-  './',
-  './index.html',
-  './admin.html',
-  './manifest.json',
-];
-
-// 1. インストール処理（必要なファイルをキャッシュ保存）
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
-    })
-  );
-  self.skipWaiting();
-});
-
-// 2. 有効化処理（古いキャッシュの削除）
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cache) => {
-          if (cache !== CACHE_NAME) {
-            return caches.delete(cache);
-          }
-        })
-      );
-    })
-  );
-  self.clients.claim();
-});
-
-// 3. フェッチ処理（ネットワーク通信失敗時にキャッシュを返す）
-self.addEventListener('fetch', (event) => {
-  event.respondWith(
-    fetch(event.request).catch(() => {
-      return caches.match(event.request);
-    })
-  );
-});
-
-// 4. プッシュ通知の受信用イベント
 self.addEventListener('push', (event) => {
-  let data = { title: '面談順番のご案内', body: 'もうすぐあなたの順番です！' };
-
+  let data = { title: '面談呼び出し通知', body: '順番を確認してください。', url: '/' };
   if (event.data) {
     try {
-      data = event.data.json();
+      data = Object.assign(data, event.data.json());
     } catch (e) {
       data.body = event.data.text();
     }
   }
 
-  const options = {
-    body: data.body,
-    icon: './icon.png',
-    badge: './icon.png',
-    vibrate: [200, 100, 200], // スマホの振動パターン
-    data: {
-      url: self.registration.scope
-    }
-  };
-
   event.waitUntil(
-    self.registration.showNotification(data.title, options)
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      data: { url: data.url || '/' }
+    })
   );
 });
 
-// 5. 通知がタップされたときの処理
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const targetUrl = (event.notification.data && event.notification.data.url) || '/';
+
   event.waitUntil(
-    clients.matchAll({ type: 'window' }).then((clientList) => {
-      // 既にアプリが開いていればそのタブにフォーカス、開いていなければ新規で開く
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
-        if (client.url && 'focus' in client) {
-          return client.focus();
-        }
+        if ('focus' in client) return client.focus();
       }
-      if (clients.openWindow) {
-        return clients.openWindow('./index.html');
-      }
+      if (clients.openWindow) return clients.openWindow(targetUrl);
     })
   );
 });
