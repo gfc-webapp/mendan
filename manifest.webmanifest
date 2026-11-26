@@ -1,6 +1,6 @@
 {
-  "name": "面談順番確認",
-  "short_name": "面談確認",
+  "name": "順番確認アプリ",
+  "short_name": "順番確認アプリ",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f0f4f8",
