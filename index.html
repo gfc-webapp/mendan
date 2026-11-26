@@ -275,12 +275,13 @@
         }
 
         // iPadOSでは必ずService Workerのreadyを待つ
-                // iPadOSでは必ずService Workerのreadyを待つ
         const reg = await navigator.serviceWorker.ready;
 
-        // 既存の古い購読が残っていれば一度解除する（鍵変更・再登録エラー対策）
+        // 既存の古い購読があればエンドポイントを控えてから解除する
+        let oldEndpoint = null;
         const existingSub = await reg.pushManager.getSubscription();
         if (existingSub) {
+          oldEndpoint = existingSub.endpoint;
           await existingSub.unsubscribe();
         }
 
@@ -289,8 +290,7 @@
           applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
         });
 
-
-        // GAS経由でSupabaseに保存
+        // GAS経由でSupabaseに保存（古い購読があれば先に削除）
         const res = await fetch(GAS_WEB_APP_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain' },
@@ -299,6 +299,7 @@
             action: 'saveSubscription',
             class_id: selectedClass,
             order_num: myOrderNum,
+            old_endpoint: oldEndpoint,
             subscription: sub.toJSON()
           })
         });
